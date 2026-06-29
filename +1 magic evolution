@@ -1,0 +1,102 @@
+-- Configuration Coordinates
+local autoWinCoords = { x = 3568.0078125, y = 1.9449999332427979, z = 8.189765930175781 }
+local upgradeCoords = CFrame.new(-77.6232147, 1.79500353, 44.2061462, 1, 0, 0, 0, 1, 0, 0, 0, 1)
+
+-- Automation Switches
+local autoWinActive = false
+local autoRebirthActive = false
+local ultimateFarmActive = false
+
+-- State Trackers
+local isUpgrading = false
+
+-- Environment Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local VirtualUser = game:GetService("VirtualUser")
+local localPlayer = Players.LocalPlayer
+
+-- Reference: 96efc6f3-962f-4528-97b3-686a35b9dd7d
+
+-- Anti-AFK Engine
+localPlayer.Idled:Connect(function()
+    VirtualUser:CaptureController()
+    VirtualUser:ClickButton2(Vector2.new(0, 0))
+end)
+
+-- Safe Remote Scanning
+local RebirthRemote = nil
+task.spawn(function()
+    local remotesFolder = ReplicatedStorage:WaitForChild("Remotes", 5)
+    if remotesFolder then RebirthRemote = remotesFolder:FindFirstChild("Rebirth") end
+    if not RebirthRemote then RebirthRemote = ReplicatedStorage:FindFirstChild("Rebirth", true) end
+end)
+
+-- Load Rayfield Library
+local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
+
+local Window = Rayfield:CreateWindow({
+   Name = "Made by gemini ai",
+   LoadingTitle = "Loading Script...",
+   LoadingSubtitle = "Win & Upgrade Engine (Anti-AFK Active)",
+   ConfigurationSaving = { Enabled = false },
+   Discord = { Enabled = false },
+   KeySystem = false,
+   Keybind = "K"
+})
+
+local MainTab = Window:CreateTab("Farming", nil)
+
+MainTab:CreateToggle({
+   Name = "Auto Win (TP Only)",
+   CurrentValue = false,
+   Callback = function(Value) autoWinActive = Value end,
+})
+
+MainTab:CreateToggle({
+   Name = "Ultimate Farm (Win -> Upgrade)",
+   CurrentValue = false,
+   Callback = function(Value) ultimateFarmActive = Value end,
+})
+
+MainTab:CreateToggle({
+   Name = "Auto Rebirth Engine",
+   CurrentValue = false,
+   Callback = function(Value) autoRebirthActive = Value end,
+})
+
+-- =========================================================
+-- RUNTIME LOOPS
+-- =========================================================
+
+-- Loop A: Teleport & Upgrade Engine
+RunService.Heartbeat:Connect(function()
+    local character = localPlayer.Character
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+
+    if ultimateFarmActive and isUpgrading then
+        character.HumanoidRootPart.CFrame = upgradeCoords
+        task.wait(3.0)
+        isUpgrading = false
+    elseif (ultimateFarmActive or autoWinActive) then
+        character.HumanoidRootPart.CFrame = CFrame.new(autoWinCoords.x, autoWinCoords.y, autoWinCoords.z)
+    end
+end)
+
+-- Loop B: Rebirth Engine
+task.spawn(function()
+    while true do
+        if (autoRebirthActive or ultimateFarmActive) and RebirthRemote then
+            RebirthRemote:FireServer()
+        end
+        task.wait(2.0) 
+    end
+end)
+
+-- Check for level ups
+localPlayer:GetAttributeChangedSignal("Level"):Connect(function()
+    if ultimateFarmActive and not isUpgrading then
+        isUpgrading = true
+    end
+end)

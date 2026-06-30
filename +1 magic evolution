@@ -6,6 +6,7 @@ local upgradeCoords = CFrame.new(-77.6232147, 1.79500353, 44.2061462, 1, 0, 0, 0
 local autoWinActive = false
 local autoRebirthActive = false
 local ultimateFarmActive = false
+local autoClickerActive = false -- Track clicker state
 
 -- State Trackers
 local isUpgrading = false
@@ -17,8 +18,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local VirtualUser = game:GetService("VirtualUser")
 local localPlayer = Players.LocalPlayer
 
--- Reference: 96efc6f3-962f-4528-97b3-686a35b9dd7d
-
 -- Anti-AFK Engine
 localPlayer.Idled:Connect(function()
     VirtualUser:CaptureController()
@@ -27,10 +26,16 @@ end)
 
 -- Safe Remote Scanning
 local RebirthRemote = nil
+local GainMagicPower = nil
 task.spawn(function()
     local remotesFolder = ReplicatedStorage:WaitForChild("Remotes", 5)
-    if remotesFolder then RebirthRemote = remotesFolder:FindFirstChild("Rebirth") end
+    if remotesFolder then 
+        RebirthRemote = remotesFolder:FindFirstChild("Rebirth") 
+        GainMagicPower = remotesFolder:FindFirstChild("GainMagicPower")
+    end
+    -- Fallback scanning if not immediately found in Remotes folder
     if not RebirthRemote then RebirthRemote = ReplicatedStorage:FindFirstChild("Rebirth", true) end
+    if not GainMagicPower then GainMagicPower = ReplicatedStorage:FindFirstChild("GainMagicPower", true) end
 end)
 
 -- Load Rayfield Library
@@ -47,6 +52,13 @@ local Window = Rayfield:CreateWindow({
 })
 
 local MainTab = Window:CreateTab("Farming", nil)
+
+-- Added Clicker Toggle to the UI
+MainTab:CreateToggle({
+   Name = "Auto Magic Clicker",
+   CurrentValue = false,
+   Callback = function(Value) autoClickerActive = Value end,
+})
 
 MainTab:CreateToggle({
    Name = "Auto Win (TP Only)",
@@ -91,6 +103,13 @@ task.spawn(function()
             RebirthRemote:FireServer()
         end
         task.wait(2.0) 
+    end
+end)
+
+-- Loop C: Max-Speed Background Auto-Clicker
+RunService.Heartbeat:Connect(function()
+    if autoClickerActive and GainMagicPower then
+        GainMagicPower:FireServer()
     end
 end)
 

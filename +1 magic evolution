@@ -6,7 +6,11 @@ local upgradeCoords = CFrame.new(-77.6232147, 1.79500353, 44.2061462, 1, 0, 0, 0
 local autoWinActive = false
 local autoRebirthActive = false
 local ultimateFarmActive = false
-local autoClickerActive = false -- Track clicker state
+local autoClickerActive = false
+
+-- Custom Modifiers
+local floatHeightValue = 0  -- Starts turned off (0)
+local lastGroundY = 0       -- Tracks the ground height before teleporting
 
 -- State Trackers
 local isUpgrading = false
@@ -18,11 +22,61 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local VirtualUser = game:GetService("VirtualUser")
 local localPlayer = Players.LocalPlayer
 
+-- Create the Invisible 2-Stud Thick Float Platform
+local floatPlatform = Instance.new("Part")
+floatPlatform.Size = Vector3.new(15, 2, 15)
+floatPlatform.Anchored = true
+floatPlatform.CanCollide = false
+floatPlatform.Transparency = 1 -- Made completely invisible
+floatPlatform.Material = Enum.Material.SmoothPlastic
+floatPlatform.CastShadow = false
+floatPlatform.Name = "InvisibleFloatPlatform"
+floatPlatform.Parent = workspace
+
 -- Anti-AFK Engine
 localPlayer.Idled:Connect(function()
     VirtualUser:CaptureController()
     VirtualUser:ClickButton2(Vector2.new(0, 0))
 end)
+
+-- Setup Raycast Parameters for Initial Floor Discovery
+local raycastParams = RaycastParams.new()
+raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+
+-- Function to handle instant player + platform snap teleportation
+local function teleportToHeight(height)
+    local character = localPlayer.Character or localPlayer.CharacterAdded:Wait()
+    local hrp = character:WaitForChild("HumanoidRootPart", 5)
+    if not hrp then return end
+
+    if height > 0 then
+        -- Find the true ground level right before we teleport
+        local rayOrigin = Vector3.new(hrp.Position.X, hrp.Position.Y + 5, hrp.Position.Z)
+        local rayDirection = Vector3.new(0, -1000, 0)
+        raycastParams.FilterDescendantsInstances = {character, floatPlatform}
+        local raycastResult = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
+        
+        -- Establish the base floor layer
+        if raycastResult then
+            lastGroundY = raycastResult.Position.Y
+        else
+            lastGroundY = hrp.Position.Y - 3.5
+        end
+
+        -- Calculate total target world heights
+        local finalFloorY = lastGroundY + height
+        local platformY = finalFloorY - 1 -- Account for half of the 2-stud thickness
+
+        -- Snap platform and player simultaneously
+        floatPlatform.CFrame = CFrame.new(hrp.Position.X, platformY, hrp.Position.Z)
+        floatPlatform.CanCollide = true
+        
+        hrp.CFrame = CFrame.new(hrp.Position.X, finalFloorY + 3, hrp.Position.Z) * hrp.CFrame.Rotation
+    else
+        floatPlatform.CanCollide = false
+        floatPlatform.CFrame = CFrame.new(0, -1000, 0)
+    end
+end
 
 -- Safe Remote Scanning
 local RebirthRemote = nil
@@ -33,50 +87,72 @@ task.spawn(function()
         RebirthRemote = remotesFolder:FindFirstChild("Rebirth") 
         GainMagicPower = remotesFolder:FindFirstChild("GainMagicPower")
     end
-    -- Fallback scanning if not immediately found in Remotes folder
     if not RebirthRemote then RebirthRemote = ReplicatedStorage:FindFirstChild("Rebirth", true) end
     if not GainMagicPower then GainMagicPower = ReplicatedStorage:FindFirstChild("GainMagicPower", true) end
+    
+    -- Safe initialization wait
+    local character = localPlayer.Character or localPlayer.CharacterAdded:Wait()
+    character:WaitForChild("HumanoidRootPart", 10)
+    teleportToHeight(floatHeightValue)
 end)
 
 -- Load Rayfield Library
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Window = Rayfield:CreateWindow({
-   Name = "Made by gemini ai",
-   LoadingTitle = "Loading Script...",
-   LoadingSubtitle = "Win & Upgrade Engine (Anti-AFK Active)",
+   Name = "Made with gemini ai",
+   LoadingTitle = "Loading...",
+   LoadingSubtitle = "Hello World!",
    ConfigurationSaving = { Enabled = false },
    Discord = { Enabled = false },
    KeySystem = false,
    Keybind = "K"
 })
 
+-- =========================================================
+-- UI TABS
+-- =========================================================
 local MainTab = Window:CreateTab("Farming", nil)
+local DungeonTab = Window:CreateTab("Dungeon", nil)
 
--- Added Clicker Toggle to the UI
+-- FARMING TAB ELEMENTS
 MainTab:CreateToggle({
-   Name = "Auto Magic Clicker",
+   Name = "Auto Clicker",
    CurrentValue = false,
    Callback = function(Value) autoClickerActive = Value end,
 })
 
 MainTab:CreateToggle({
-   Name = "Auto Win (TP Only)",
+   Name = "Infinite win",
    CurrentValue = false,
    Callback = function(Value) autoWinActive = Value end,
 })
 
 MainTab:CreateToggle({
-   Name = "Ultimate Farm (Win -> Upgrade)",
+   Name = "Ultimate Farm",
    CurrentValue = false,
    Callback = function(Value) ultimateFarmActive = Value end,
 })
 
 MainTab:CreateToggle({
-   Name = "Auto Rebirth Engine",
+   Name = "Auto Rebirth",
    CurrentValue = false,
    Callback = function(Value) autoRebirthActive = Value end,
 })
+
+-- AUTO DUNGEON TAB ELEMENTS
+DungeonTab:CreateSlider({
+   Name = "Float Height Scale",
+   Range = {0, 30}, 
+   Increment = 1,
+   Suffix = "Studs (0 = Off)",
+   CurrentValue = 0, 
+   Callback = function(Value)
+       floatHeightValue = Value
+       teleportToHeight(Value) 
+   end,
+})
+
 
 -- =========================================================
 -- RUNTIME LOOPS
@@ -91,6 +167,7 @@ RunService.Heartbeat:Connect(function()
         character.HumanoidRootPart.CFrame = upgradeCoords
         task.wait(3.0)
         isUpgrading = false
+        if floatHeightValue > 0 then teleportToHeight(floatHeightValue) end
     elseif (ultimateFarmActive or autoWinActive) then
         character.HumanoidRootPart.CFrame = CFrame.new(autoWinCoords.x, autoWinCoords.y, autoWinCoords.z)
     end
@@ -110,6 +187,26 @@ end)
 RunService.Heartbeat:Connect(function()
     if autoClickerActive and GainMagicPower then
         GainMagicPower:FireServer()
+    end
+end)
+
+-- Loop E: Dynamic Real-time Platform Tracker (X/Z Horizontal alignment)
+RunService.Heartbeat:Connect(function()
+    local character = localPlayer.Character
+    if not character or not character:FindFirstChild("HumanoidRootPart") then 
+        floatPlatform.CanCollide = false
+        floatPlatform.CFrame = CFrame.new(0, -1000, 0)
+        return 
+    end
+    local hrp = character.HumanoidRootPart
+
+    if floatHeightValue > 0 then
+        floatPlatform.CanCollide = true
+        local staticY = lastGroundY + floatHeightValue - 1
+        floatPlatform.CFrame = CFrame.new(hrp.Position.X, staticY, hrp.Position.Z)
+    else
+        floatPlatform.CanCollide = false
+        floatPlatform.CFrame = CFrame.new(0, -1000, 0)
     end
 end)
 

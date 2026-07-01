@@ -11,9 +11,11 @@ local autoClickerActive = false
 -- Custom Modifiers
 local floatHeightValue = 0  -- Starts turned off (0)
 local lastGroundY = 0       -- Tracks the ground height before teleporting
+local walkSpeedValue = 16   -- Default Roblox walkspeed
 
--- State Trackers
+-- State & Level Trackers
 local isUpgrading = false
+local upgradeEndTime = 0
 
 -- Environment Services
 local Players = game:GetService("Players")
@@ -21,6 +23,9 @@ local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local VirtualUser = game:GetService("VirtualUser")
 local localPlayer = Players.LocalPlayer
+
+-- Track initial level to prevent rebirth glitch
+local lastLevel = localPlayer:GetAttribute("Level") or 0
 
 -- Create the Invisible 2-Stud Thick Float Platform
 local floatPlatform = Instance.new("Part")
@@ -50,24 +55,20 @@ local function teleportToHeight(height)
     if not hrp then return end
 
     if height > 0 then
-        -- Find the true ground level right before we teleport
         local rayOrigin = Vector3.new(hrp.Position.X, hrp.Position.Y + 5, hrp.Position.Z)
         local rayDirection = Vector3.new(0, -1000, 0)
         raycastParams.FilterDescendantsInstances = {character, floatPlatform}
         local raycastResult = workspace:Raycast(rayOrigin, rayDirection, raycastParams)
         
-        -- Establish the base floor layer
         if raycastResult then
             lastGroundY = raycastResult.Position.Y
         else
             lastGroundY = hrp.Position.Y - 3.5
         end
 
-        -- Calculate total target world heights
         local finalFloorY = lastGroundY + height
-        local platformY = finalFloorY - 1 -- Account for half of the 2-stud thickness
+        local platformY = finalFloorY - 1
 
-        -- Snap platform and player simultaneously
         floatPlatform.CFrame = CFrame.new(hrp.Position.X, platformY, hrp.Position.Z)
         floatPlatform.CanCollide = true
         
@@ -90,7 +91,6 @@ task.spawn(function()
     if not RebirthRemote then RebirthRemote = ReplicatedStorage:FindFirstChild("Rebirth", true) end
     if not GainMagicPower then GainMagicPower = ReplicatedStorage:FindFirstChild("GainMagicPower", true) end
     
-    -- Safe initialization wait
     local character = localPlayer.Character or localPlayer.CharacterAdded:Wait()
     character:WaitForChild("HumanoidRootPart", 10)
     teleportToHeight(floatHeightValue)
@@ -100,9 +100,9 @@ end)
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Window = Rayfield:CreateWindow({
-   Name = "Made with gemini ai",
+   Name = "✨ +1 Magic Evolution | V3",
    LoadingTitle = "Loading...",
-   LoadingSubtitle = "Hello World!",
+   LoadingSubtitle = "Farming Loop Stable",
    ConfigurationSaving = { Enabled = false },
    Discord = { Enabled = false },
    KeySystem = false,
@@ -113,6 +113,7 @@ local Window = Rayfield:CreateWindow({
 -- UI TABS
 -- =========================================================
 local MainTab = Window:CreateTab("Farming", nil)
+local PlayerTab = Window:CreateTab("Player", nil)
 local DungeonTab = Window:CreateTab("Dungeon", nil)
 
 -- FARMING TAB ELEMENTS
@@ -140,6 +141,18 @@ MainTab:CreateToggle({
    Callback = function(Value) autoRebirthActive = Value end,
 })
 
+-- PLAYER TAB ELEMENTS
+PlayerTab:CreateSlider({
+   Name = "WalkSpeed Scale",
+   Range = {16, 200}, 
+   Increment = 1,
+   Suffix = "Speed studs",
+   CurrentValue = 16, 
+   Callback = function(Value)
+       walkSpeedValue = Value
+   end,
+})
+
 -- AUTO DUNGEON TAB ELEMENTS
 DungeonTab:CreateSlider({
    Name = "Float Height Scale",
@@ -158,18 +171,23 @@ DungeonTab:CreateSlider({
 -- RUNTIME LOOPS
 -- =========================================================
 
--- Loop A: Teleport & Upgrade Engine
+-- Loop A: Continuous Smooth Teleportation Engine (No Blocking Waits)
 RunService.Heartbeat:Connect(function()
     local character = localPlayer.Character
-    if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+    local hrp = character and character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
 
     if ultimateFarmActive and isUpgrading then
-        character.HumanoidRootPart.CFrame = upgradeCoords
-        task.wait(3.0)
-        isUpgrading = false
-        if floatHeightValue > 0 then teleportToHeight(floatHeightValue) end
+        if os.clock() < upgradeEndTime then
+            -- Keep locked on upgrade platform continuously for the 3 seconds
+            hrp.CFrame = upgradeCoords
+        else
+            -- 3 seconds have passed, return to farming wins safely
+            isUpgrading = false
+            if floatHeightValue > 0 then teleportToHeight(floatHeightValue) end
+        end
     elseif (ultimateFarmActive or autoWinActive) then
-        character.HumanoidRootPart.CFrame = CFrame.new(autoWinCoords.x, autoWinCoords.y, autoWinCoords.z)
+        hrp.CFrame = CFrame.new(autoWinCoords.x, autoWinCoords.y, autoWinCoords.z)
     end
 end)
 
@@ -190,7 +208,18 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
--- Loop E: Dynamic Real-time Platform Tracker (X/Z Horizontal alignment)
+-- Loop D: Fixed Smooth Frame-Rate WalkSpeed Enforcement
+RunService.Stepped:Connect(function()
+    pcall(function()
+        local character = localPlayer.Character
+        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+        if humanoid and humanoid.WalkSpeed ~= walkSpeedValue then
+            humanoid.WalkSpeed = walkSpeedValue
+        end
+    end)
+end)
+
+-- Loop E: Dynamic Real-time Platform Tracker
 RunService.Heartbeat:Connect(function()
     local character = localPlayer.Character
     if not character or not character:FindFirstChild("HumanoidRootPart") then 
@@ -210,9 +239,14 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
--- Check for level ups
+-- Smart Level Listener: Only triggers upgrade if level INCREASES
 localPlayer:GetAttributeChangedSignal("Level"):Connect(function()
-    if ultimateFarmActive and not isUpgrading then
+    local currentLevel = localPlayer:GetAttribute("Level") or 0
+    
+    if ultimateFarmActive and currentLevel > lastLevel and not isUpgrading then
         isUpgrading = true
+        upgradeEndTime = os.clock() + 3.0 -- Set exact expiration timestamp
     end
+    
+    lastLevel = currentLevel -- Always update baseline to track future changes accurately
 end)

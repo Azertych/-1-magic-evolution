@@ -7,11 +7,16 @@ local autoWinActive = false
 local autoRebirthActive = false
 local ultimateFarmActive = false
 local autoClickerActive = false
+local godModeActive = false
 
 -- Custom Modifiers
 local floatHeightValue = 0  -- Starts turned off (0)
 local lastGroundY = 0       -- Tracks the ground height before teleporting
 local walkSpeedValue = 16   -- Default Roblox walkspeed
+local infJumpActive = false
+local noclipActive = false
+local flyActive = false
+local flySpeed = 50         -- Default flight speed
 
 -- State & Level Trackers
 local isUpgrading = false
@@ -22,6 +27,7 @@ local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local VirtualUser = game:GetService("VirtualUser")
+local UserInputService = game:GetService("UserInputService")
 local localPlayer = Players.LocalPlayer
 
 -- Track initial level to prevent rebirth glitch
@@ -32,7 +38,7 @@ local floatPlatform = Instance.new("Part")
 floatPlatform.Size = Vector3.new(15, 2, 15)
 floatPlatform.Anchored = true
 floatPlatform.CanCollide = false
-floatPlatform.Transparency = 1 -- Made completely invisible
+floatPlatform.Transparency = 1 
 floatPlatform.Material = Enum.Material.SmoothPlastic
 floatPlatform.CastShadow = false
 floatPlatform.Name = "InvisibleFloatPlatform"
@@ -79,9 +85,127 @@ local function teleportToHeight(height)
     end
 end
 
+-- Smooth Physics Flight System
+local flyBV, flyBG
+local function updateFlight()
+    local character = localPlayer.Character
+    local hrp = character and character:FindFirstChild("HumanoidRootPart")
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    
+    if not hrp or not flyActive then 
+        if flyBV then flyBV:Destroy() end
+        if flyBG then flyBG:Destroy() end
+        if humanoid then humanoid.PlatformStand = false end
+        return 
+    end
+    
+    if not flyBV or flyBV.Parent ~= hrp then
+        flyBV = Instance.new("BodyVelocity")
+        flyBV.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+        flyBV.Parent = hrp
+    end
+    
+    if not flyBG or flyBG.Parent ~= hrp then
+        flyBG = Instance.new("BodyGyro")
+        flyBG.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
+        flyBG.Parent = hrp
+    end
+    
+    if humanoid then humanoid.PlatformStand = true end
+    
+    task.spawn(function()
+        while flyActive and hrp and flyBV and flyBG do
+            local camera = workspace.CurrentCamera
+            local moveDir = Vector3.new(0, 0, 0)
+            
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveDir = moveDir + camera.CFrame.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveDir = moveDir - camera.CFrame.LookVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveDir = moveDir - camera.CFrame.RightVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveDir = moveDir + camera.CFrame.RightVector end
+            if UserInputService:IsKeyDown(Enum.KeyCode.Space) then moveDir = moveDir + Vector3.new(0, 1, 0) end
+            if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then moveDir = moveDir - Vector3.new(0, 1, 0) end
+            
+            if moveDir.Magnitude > 0 then
+                flyBV.Velocity = moveDir.Unit * flySpeed
+            else
+                flyBV.Velocity = Vector3.new(0, 0, 0)
+            end
+            
+            flyBG.CFrame = camera.CFrame
+            task.wait()
+        end
+        if flyBV then flyBV:Destroy() end
+        if flyBG then flyBG:Destroy() end
+        if humanoid then humanoid.PlatformStand = false end
+    end)
+end
+
+-- Infinite Jump Core Listener
+UserInputService.JumpRequest:Connect(function()
+    if infJumpActive then
+        local character = localPlayer.Character
+        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+        end
+    end
+end)
+
+-- Core God Mode Application Logic
+local function ApplyGodmode(char)
+    if not char or not godModeActive then return end
+    
+    local humanoid = char:WaitForChild("Humanoid", 12)
+    if not humanoid then return end
+
+    pcall(function()
+        humanoid.MaxHealth = 1e8
+        humanoid.Health = humanoid.MaxHealth
+    end)
+end
+
+-- Hyper-Stable WalkSpeed Enforcement Logic
+local function EnforceWalkSpeed(char)
+    if not char then return end
+    local humanoid = char:WaitForChild("Humanoid", 10)
+    if not humanoid then return end
+
+    -- Set initial speed safely
+    pcall(function()
+        humanoid.WalkSpeed = walkSpeedValue
+    end)
+
+    -- Intercept any anti-cheat/game loop trying to change it back
+    humanoid:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
+        if humanoid.WalkSpeed ~= walkSpeedValue then
+            pcall(function()
+                humanoid.WalkSpeed = walkSpeedValue
+            end)
+        end
+    end)
+end
+
+-- Automatic Respawn Hook for Custom Enhancements
+localPlayer.CharacterAdded:Connect(function(newChar)
+    if godModeActive then
+        task.wait(1.2)
+        ApplyGodmode(newChar)
+    end
+    task.wait(0.5)
+    EnforceWalkSpeed(newChar)
+end)
+
+-- Initialize speed on the current alive character if present
+if localPlayer.Character then
+    task.spawn(function()
+        EnforceWalkSpeed(localPlayer.Character)
+    end)
+end
+
 -- Safe Remote Scanning
 local RebirthRemote = nil
 local GainMagicPower = nil
+
 task.spawn(function()
     local remotesFolder = ReplicatedStorage:WaitForChild("Remotes", 5)
     if remotesFolder then 
@@ -142,6 +266,36 @@ MainTab:CreateToggle({
 })
 
 -- PLAYER TAB ELEMENTS
+PlayerTab:CreateToggle({
+   Name = "God Mode (Infinite Health)",
+   CurrentValue = false,
+   Callback = function(Value) 
+       godModeActive = Value 
+       if Value then
+           ApplyGodmode(localPlayer.Character)
+       else
+           local character = localPlayer.Character
+           local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+           if humanoid then
+               humanoid.MaxHealth = 100
+               humanoid.Health = 100
+           end
+       end
+   end,
+})
+
+PlayerTab:CreateToggle({
+   Name = "Infinite Zoom",
+   CurrentValue = false,
+   Callback = function(Value)
+       if Value then
+           localPlayer.CameraMaxZoomDistance = math.huge
+       else
+           localPlayer.CameraMaxZoomDistance = 128 -- Default limit
+       end
+   end,
+})
+
 PlayerTab:CreateSlider({
    Name = "WalkSpeed Scale",
    Range = {16, 200}, 
@@ -150,6 +304,58 @@ PlayerTab:CreateSlider({
    CurrentValue = 16, 
    Callback = function(Value)
        walkSpeedValue = Value
+       -- Instant force modification on slider shift
+       pcall(function()
+           local character = localPlayer.Character
+           local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+           if humanoid then
+               humanoid.WalkSpeed = Value
+           end
+       end)
+   end,
+})
+
+PlayerTab:CreateToggle({
+   Name = "Infinite Jump",
+   CurrentValue = false,
+   Callback = function(Value) infJumpActive = Value end,
+})
+
+PlayerTab:CreateToggle({
+   Name = "Fly Mode",
+   CurrentValue = false,
+   Callback = function(Value) 
+       flyActive = Value 
+       updateFlight()
+   end,
+})
+
+PlayerTab:CreateSlider({
+   Name = "Fly Speed Scale",
+   Range = {10, 300}, 
+   Increment = 1,
+   Suffix = "Flight studs",
+   CurrentValue = 50, 
+   Callback = function(Value)
+       flySpeed = Value
+   end,
+})
+
+PlayerTab:CreateLabel("⚠️ WARNING: Noclip can cause Anti-Cheat Kicks!")
+
+PlayerTab:CreateToggle({
+   Name = "Noclip Through Walls",
+   CurrentValue = false,
+   Callback = function(Value) 
+       noclipActive = Value 
+       if Value then
+           Rayfield:Notify({
+               Title = "Anti-Cheat Warning",
+               Content = "Noclip bypasses walls. Active checks might kick you!",
+               Duration = 4,
+               Image = 4483362458,
+           })
+       end
    end,
 })
 
@@ -179,10 +385,8 @@ RunService.Heartbeat:Connect(function()
 
     if ultimateFarmActive and isUpgrading then
         if os.clock() < upgradeEndTime then
-            -- Keep locked on upgrade platform continuously for the 3 seconds
             hrp.CFrame = upgradeCoords
         else
-            -- 3 seconds have passed, return to farming wins safely
             isUpgrading = false
             if floatHeightValue > 0 then teleportToHeight(floatHeightValue) end
         end
@@ -208,13 +412,30 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
--- Loop D: Fixed Smooth Frame-Rate WalkSpeed Enforcement
+-- Loop D: Fixed High-Frequency Enforcement (Noclip & God Mode)
 RunService.Stepped:Connect(function()
     pcall(function()
         local character = localPlayer.Character
-        local humanoid = character and character:FindFirstChildOfClass("Humanoid")
-        if humanoid and humanoid.WalkSpeed ~= walkSpeedValue then
-            humanoid.WalkSpeed = walkSpeedValue
+        if not character then return end
+        local humanoid = character:FindFirstChildOfClass("Humanoid")
+        
+        -- High-frequency Realtime God Mode Enforcement
+        if godModeActive and humanoid then
+            if humanoid.MaxHealth < 1e8 then
+                humanoid.MaxHealth = 1e8
+            end
+            if humanoid.Health < humanoid.MaxHealth then
+                humanoid.Health = humanoid.MaxHealth
+            end
+        end
+        
+        -- Instantaneous Noclip Verification
+        if noclipActive then
+            for _, part in ipairs(character:GetChildren()) do
+                if part:IsA("BasePart") and part.CanCollide then
+                    part.CanCollide = false
+                end
+            end
         end
     end)
 end)
@@ -245,8 +466,19 @@ localPlayer:GetAttributeChangedSignal("Level"):Connect(function()
     
     if ultimateFarmActive and currentLevel > lastLevel and not isUpgrading then
         isUpgrading = true
-        upgradeEndTime = os.clock() + 3.0 -- Set exact expiration timestamp
+        upgradeEndTime = os.clock() + 3.0 
     end
     
-    lastLevel = currentLevel -- Always update baseline to track future changes accurately
+    lastLevel = currentLevel 
 end)
+
+-- Global Unhook Handler
+getgenv().DisableGodmode = function()
+    godModeActive = false
+    local character = localPlayer.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    if humanoid then
+        humanoid.MaxHealth = 100
+        humanoid.Health = 100
+    end
+end
